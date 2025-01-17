@@ -15,12 +15,12 @@ var (
 )
 
 func init() {
-	registerObjectKind(NetworkPolicy, matcherFunc(func(gvk schema.GroupVersionKind) bool {
+	RegisterObjectKind(NetworkPolicy, MatcherFunc(func(gvk schema.GroupVersionKind) bool {
 		return gvk == networkpolicyGVK
 	}))
 }
 
-//GetNetworkPolicyAPIVersion returns networkpolicy's apiversion
+// GetNetworkPolicyAPIVersion returns networkpolicy's apiversion
 func GetNetworkPolicyAPIVersion() string {
 	return networkpolicyGVK.GroupVersion().String()
 }

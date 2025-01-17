@@ -5,6 +5,7 @@ import (
 	"os"
 
 	"golang.stackrox.io/kube-linter/pkg/diagnostic"
+	"golang.stackrox.io/kube-linter/pkg/pathutil"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 
 	"golang.stackrox.io/kube-linter/internal/flagutil"
@@ -81,7 +82,25 @@ func Command() *cobra.Command {
 				fmt.Fprintln(os.Stderr, "Warning: no checks enabled.")
 				return nil
 			}
-			lintCtxs, err := lintcontext.CreateContexts(args...)
+			ignorePaths, err := configresolver.GetIgnorePaths(&cfg)
+			if err != nil {
+				return err
+			}
+
+			absArgs := make([]string, 0, len(args))
+			for _, arg := range args {
+				if arg == lintcontext.ReadFromStdin {
+					absArgs = append(absArgs, lintcontext.ReadFromStdin)
+					continue
+				}
+				absArg, err := pathutil.GetAbsolutPath(arg)
+				if err != nil {
+					return err
+				}
+				absArgs = append(absArgs, absArg)
+			}
+
+			lintCtxs, err := lintcontext.CreateContexts(ignorePaths, absArgs...)
 			if err != nil {
 				return err
 			}

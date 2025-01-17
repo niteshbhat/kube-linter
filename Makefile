@@ -1,9 +1,7 @@
+deps: go.mod go.sum tool-imports/go.sum tool-imports/go.mod
+	@touch deps
 
-.PHONY: none
-none:
-
-
-deps: go.mod
+%.sum: %.mod
 	@echo "+ $@"
 	@go mod tidy
 ifdef CI
@@ -18,18 +16,13 @@ ifeq ($(UNAME_S),Darwin)
     HOST_OS := darwin
 endif
 
-TAG := $(shell ./get-tag)
-
 GOBIN := $(CURDIR)/.gobin
-PATH := $(GOBIN):$(PATH)
-
-# Makefile on Mac doesn't pass the updated PATH and GOBIN to the shell
-# and so, without the following line, the shell does not end up
-# trying commands in $(GOBIN) first.
-# See https://stackoverflow.com/a/36226784/3690207
-SHELL := env GOBIN=$(GOBIN) PATH=$(PATH) /bin/bash
+DIST := $(CURDIR)/dist
+PATH := $(DIST):$(GOBIN):$(PATH)
 
 KUBE_LINTER_BIN := $(GOBIN)/kube-linter
+
+COVFILES := $(shell mktemp -d)
 
 ########################################
 ###### Binaries we depend on ###########
@@ -38,7 +31,14 @@ KUBE_LINTER_BIN := $(GOBIN)/kube-linter
 GOLANGCILINT_BIN := $(GOBIN)/golangci-lint
 $(GOLANGCILINT_BIN): deps
 	@echo "+ $@"
-	go install github.com/golangci/golangci-lint/cmd/golangci-lint
+	cd tool-imports; \
+	GOBIN=$(GOBIN) go install github.com/golangci/golangci-lint/cmd/golangci-lint
+
+GORELEASER_BIN := $(GOBIN)/goreleaser
+$(GORELEASER_BIN): deps
+	@echo "+ $@"
+	cd tool-imports; \
+	GOBIN=$(GOBIN) go install github.com/goreleaser/goreleaser
 
 ###########
 ## Lint ##
@@ -50,9 +50,9 @@ ifdef CI
 	@echo '+ $@'
 	@echo 'The environment indicates we are in CI; running linters in check mode.'
 	@echo 'If this fails, run `make lint`.'
-	golangci-lint run
+	$(GOLANGCILINT_BIN) run
 else
-	golangci-lint run --fix
+	$(GOLANGCILINT_BIN) run --fix
 endif
 
 .PHONY: lint
@@ -67,9 +67,9 @@ go-generated-srcs: deps
 	go generate ./...
 
 .PHONY: generated-docs
-generated-docs: go-generated-srcs build
-	kube-linter templates list --format markdown > docs/generated/templates.md
-	kube-linter checks list --format markdown > docs/generated/checks.md
+generated-docs: go-generated-srcs $(KUBE_LINTER_BIN)
+	$(KUBE_LINTER_BIN) templates list --format markdown > docs/generated/templates.md
+	$(KUBE_LINTER_BIN) checks list --format markdown > docs/generated/checks.md
 
 .PHONY: generated-srcs
 generated-srcs: go-generated-srcs generated-docs
@@ -80,29 +80,21 @@ generated-srcs: go-generated-srcs generated-docs
 
 
 .PHONY: build
-build:
-	@CGO_ENABLED=0 GOOS=darwin scripts/go-build.sh ./cmd/kube-linter
-	@CGO_ENABLED=0 GOOS=linux scripts/go-build.sh ./cmd/kube-linter
-	@CGO_ENABLED=0 GOOS=windows scripts/go-build.sh ./cmd/kube-linter
-	@mkdir -p "$(GOBIN)"
-	@cp "bin/$(HOST_OS)/kube-linter" "$(GOBIN)/kube-linter"
+build: $(KUBE_LINTER_BIN)
+
+$(KUBE_LINTER_BIN): $(GORELEASER_BIN) $(shell find . -type f -name '*.go')
+	$(GORELEASER_BIN) build --snapshot --clean
+	mkdir -p $(GOBIN)
+	@cp "$(DIST)/kube-linter_$(HOST_OS)_amd64_v1/kube-linter" "$(GOBIN)/kube-linter"
 	@chmod u+w "$(GOBIN)/kube-linter"
 
-$(KUBE_LINTER_BIN):
-	@$(MAKE) build
-
-.PHONY: image
-image: build
-	@cp bin/linux/kube-linter image/bin
-	@docker build -t "stackrox/kube-linter:$(TAG)" -f image/Dockerfile image/
-	@docker build -t "stackrox/kube-linter:$(TAG)-alpine" -f image/Dockerfile_alpine image/
 ##########
 ## Test ##
 ##########
 
 .PHONY: test
 test:
-	go test ./...
+	go test ./... -race -covermode=atomic -coverprofile=coverage.out
 
 .PHONY: e2e-test
 e2e-test: $(KUBE_LINTER_BIN)
@@ -114,5 +106,6 @@ e2e-bats: $(KUBE_LINTER_BIN)
 	@command -v diff &> /dev/null || { echo >&2 'ERROR: diff not installed; See: https://www.baeldung.com/linux/diff-command - Aborting'; exit 1; }
 	@command -v bats &> /dev/null || { echo >&2 'ERROR: bats not installed; See: https://bats-core.readthedocs.io/en/stable/installation.html - Aborting'; exit 1; }
 
-	KUBE_LINTER_BIN="$(KUBE_LINTER_BIN)" e2etests/bats-tests.sh
-	KUBE_LINTER_BIN="$(KUBE_LINTER_BIN)" e2etests/check-bats-tests.sh
+	GOCOVERDIR=$(COVFILES) KUBE_LINTER_BIN="$(KUBE_LINTER_BIN)" e2etests/bats-tests.sh
+	GOCOVERDIR=$(COVFILES) KUBE_LINTER_BIN="$(KUBE_LINTER_BIN)" e2etests/check-bats-tests.sh
+	go tool covdata textfmt -i=$(COVFILES) -o coverage.out

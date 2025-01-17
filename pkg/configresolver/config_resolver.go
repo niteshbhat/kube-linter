@@ -7,6 +7,7 @@ import (
 	"golang.stackrox.io/kube-linter/pkg/builtinchecks"
 	"golang.stackrox.io/kube-linter/pkg/checkregistry"
 	"golang.stackrox.io/kube-linter/pkg/config"
+	"golang.stackrox.io/kube-linter/pkg/pathutil"
 )
 
 // LoadCustomChecksInto loads the custom checks from the config into the check registry.
@@ -52,6 +53,27 @@ func GetEnabledChecksAndValidate(cfg *config.Config, checkRegistry checkregistry
 		return nil, err
 	}
 	return enabledChecks.AsSortedSlice(func(i, j string) bool {
+		return i < j
+	}), nil
+}
+
+// GetIgnorePaths loads the paths from the config into the check registry.
+func GetIgnorePaths(cfg *config.Config) ([]string, error) {
+	errorList := errorhelpers.NewErrorList("check ignore paths")
+	ignorePaths := set.NewStringSet()
+	for _, path := range cfg.Checks.IgnorePaths {
+		res, err := pathutil.GetAbsolutPath(path)
+		if err != nil {
+			errorList.AddError(err)
+			continue
+		}
+		ignorePaths.AddAll(res)
+	}
+
+	if err := errorList.ToError(); err != nil {
+		return nil, err
+	}
+	return ignorePaths.AsSortedSlice(func(i, j string) bool {
 		return i < j
 	}), nil
 }

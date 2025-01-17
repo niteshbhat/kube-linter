@@ -16,6 +16,11 @@ get_value_from() {
   echo "${value}"
 }
 
+@test "template-check-installed-bash-version" {
+    run "bash --version"
+    [[ "${BASH_VERSION:0:1}" -ge '4' ]] || false
+}
+
 @test "access-to-create-pods" {
   tmp="tests/checks/access-to-create-pods.yml"
   cmd="${KUBE_LINTER_BIN} lint --include access-to-create-pods --do-not-auto-add-defaults --format json ${tmp}"
@@ -76,6 +81,23 @@ get_value_from() {
   [[ "${count}" == "1" ]]
 }
 
+@test "dangling-ingress" {
+  tmp="tests/checks/dangling-ingress.yml"
+  cmd="${KUBE_LINTER_BIN} lint --include dangling-ingress --do-not-auto-add-defaults --format json ${tmp}"
+  run ${cmd}
+
+  print_info "${status}" "${output}" "${cmd}" "${tmp}"
+  [ "$status" -eq 1 ]
+
+  message1=$(get_value_from "${lines[0]}" '.Reports[0].Object.K8sObject.GroupVersionKind.Kind + ": " + .Reports[0].Diagnostic.Message')
+  message2=$(get_value_from "${lines[0]}" '.Reports[1].Object.K8sObject.GroupVersionKind.Kind + ": " + .Reports[1].Diagnostic.Message')
+  count=$(get_value_from "${lines[0]}" '.Reports | length')
+
+  [[ "${message1}" == "Ingress: no service found matching ingress label (missing), port 80" ]]
+  [[ "${message2}" == "Ingress: no service found matching ingress label (bad-port), port 8080" ]]
+  [[ "${count}" == "2" ]]
+}
+
 @test "dangling-networkpolicy" {
   tmp="tests/checks/dangling-networkpolicy.yml"
   cmd="${KUBE_LINTER_BIN} lint --include dangling-networkpolicy --do-not-auto-add-defaults --format json ${tmp}"
@@ -123,6 +145,28 @@ get_value_from() {
   [[ "${count}" == "2" ]]
 }
 
+@test "dangling-servicemonitor" {
+  tmp="tests/checks/dangling-servicemonitor.yml"
+  cmd="${KUBE_LINTER_BIN} lint --include dangling-servicemonitor --do-not-auto-add-defaults --format json ${tmp}"
+  run ${cmd}
+
+  print_info "${status}" "${output}" "${cmd}" "${tmp}"
+  [ "$status" -eq 1 ]
+
+  message1=$(get_value_from "${lines[0]}" '.Reports[0].Object.K8sObject.GroupVersionKind.Kind + ": " + .Reports[0].Diagnostic.Message')
+  message2=$(get_value_from "${lines[0]}" '.Reports[1].Object.K8sObject.GroupVersionKind.Kind + ": " + .Reports[1].Diagnostic.Message')
+  message3=$(get_value_from "${lines[0]}" '.Reports[2].Object.K8sObject.GroupVersionKind.Kind + ": " + .Reports[2].Diagnostic.Message')
+  message4=$(get_value_from "${lines[0]}" '.Reports[3].Object.K8sObject.GroupVersionKind.Kind + ": " + .Reports[3].Diagnostic.Message')
+
+  count=$(get_value_from "${lines[0]}" '.Reports | length')
+
+  [[ "${message1}" == "ServiceMonitor: no services found matching the service monitor's label selector (app.kubernetes.io/name=app) and namespace selector ([])" ]]
+  [[ "${message2}" == "ServiceMonitor: no services found matching the service monitor's label selector (app.kubernetes.io/name=app) and namespace selector ([])" ]]
+  [[ "${message3}" == "ServiceMonitor: no services found matching the service monitor's label selector () and namespace selector ([test2])" ]]
+  [[ "${message4}" == "ServiceMonitor: no services found matching the service monitor's label selector (app.kubernetes.io/name=app1) and namespace selector ([test2])" ]]
+  [[ "${count}" == "4" ]]
+}
+
 @test "default-service-account" {
   tmp="tests/checks/default-service-account.yml"
   cmd="${KUBE_LINTER_BIN} lint --include default-service-account --do-not-auto-add-defaults --format json ${tmp}"
@@ -157,6 +201,25 @@ get_value_from() {
   [[ "${count}" == "2" ]]
 }
 
+@test "dnsconfig-options" {
+  tmp="tests/checks/dnsconfig-options-ndots.yml"
+  cmd="${KUBE_LINTER_BIN} lint --include dnsconfig-options --do-not-auto-add-defaults --format json ${tmp}"
+  run ${cmd}
+
+  print_info "${status}" "${output}" "${cmd}" "${tmp}"
+  [ "$status" -eq 1 ]
+
+  message1=$(get_value_from "${lines[0]}" '.Reports[0].Object.K8sObject.GroupVersionKind.Kind + ": " + .Reports[0].Diagnostic.Message')
+  message2=$(get_value_from "${lines[0]}" '.Reports[1].Object.K8sObject.GroupVersionKind.Kind + ": " + .Reports[1].Diagnostic.Message')
+  message3=$(get_value_from "${lines[0]}" '.Reports[2].Object.K8sObject.GroupVersionKind.Kind + ": " + .Reports[2].Diagnostic.Message')
+  count=$(get_value_from "${lines[0]}" '.Reports | length')
+
+  [[ "${message1}" == "Deployment: DNSConfig Options \"ndots:2\" not found." ]]
+  [[ "${message2}" == "Deployment: Object does not define any DNSConfig Options." ]]
+  [[ "${message3}" == "Deployment: Object does not define any DNSConfig rules." ]]
+  [[ "${count}" == "3" ]]
+}
+
 @test "docker-sock" {
   tmp="tests/checks/docker-sock.yml"
   cmd="${KUBE_LINTER_BIN} lint --include docker-sock --do-not-auto-add-defaults --format json ${tmp}"
@@ -189,6 +252,23 @@ get_value_from() {
   [[ "${message1}" == "Deployment: container \"app\" has ADD capability: \"NET_RAW\", which matched with the forbidden capability for containers" ]]
   [[ "${message2}" == "DeploymentConfig: container \"app\" has ADD capability: \"NET_RAW\", which matched with the forbidden capability for containers" ]]
   [[ "${count}" == "4" ]]
+}
+
+@test "duplicate-env-var" {
+  tmp="tests/checks/duplicate-env-var.yaml"
+  cmd="${KUBE_LINTER_BIN} lint --include duplicate-env-var --do-not-auto-add-defaults --format json ${tmp}"
+  run ${cmd}
+
+  print_info "${status}" "${output}" "${cmd}" "${tmp}"
+  [ "$status" -eq 1 ]
+
+  message1=$(get_value_from "${lines[0]}" '.Reports[0].Object.K8sObject.GroupVersionKind.Kind + ": " + .Reports[0].Diagnostic.Message')
+  message2=$(get_value_from "${lines[0]}" '.Reports[1].Object.K8sObject.GroupVersionKind.Kind + ": " + .Reports[1].Diagnostic.Message')
+  count=$(get_value_from "${lines[0]}" '.Reports | length')
+
+  [[ "${message1}" == "Deployment: Duplicate environment variable PORT in container \"fire-deployment\" found" ]]
+  [[ "${message2}" == "StatefulSet: Duplicate environment variable PORT in container \"fire-stateful\" found" ]]
+  [[ "${count}" == "2" ]]
 }
 
 @test "env-var-secret" {
@@ -289,6 +369,31 @@ get_value_from() {
   [[ "${count}" == "1" ]]
 }
 
+@test "invalid-target-ports" {
+  tmp="tests/checks/invalid-target-ports.yaml"
+  cmd="${KUBE_LINTER_BIN} lint --include invalid-target-ports --do-not-auto-add-defaults --format json ${tmp}"
+  run ${cmd}
+
+  print_info "${status}" "${output}" "${cmd}" "${tmp}"
+  [[ "${status}" -eq 1 ]]
+
+  count=$(get_value_from "${lines[0]}" '.Reports | length')
+  [[ "${count}" == "4" ]]
+
+  # TODO: export to helper function so that it can be used for other tests
+  actual_messages=()
+  for (( i=0; i<$((count)); i++ ))
+  do
+    actual_message=$(get_value_from "${lines[0]}" ".Reports[${i}] | .Object.K8sObject.GroupVersionKind.Kind + \": \" + .Diagnostic.Message")
+    actual_messages+=("${actual_message}")
+  done
+
+  [[ "${actual_messages[0]}" == "Service: port targetPort \"123456\" in service \"invalid-target-ports\" must be between 1 and 65535, inclusive" ]]
+  [[ "${actual_messages[1]}" == "Service: port targetPort \"n234567890123456\" in service \"invalid-target-ports\" must be no more than 15 characters" ]]
+  [[ "${actual_messages[2]}" == "Deployment: port name \"n234567890123456\" in container \"invalid-target-ports\" must be no more than 15 characters" ]]
+  [[ "${actual_messages[3]}" == "Deployment: port name \"123456\" in container \"invalid-target-ports\" must contain at least one letter (a-z)" ]]
+}
+
 @test "latest-tag" {
   tmp="tests/checks/latest-tag.yml"
   cmd="${KUBE_LINTER_BIN} lint --include latest-tag --do-not-auto-add-defaults --format json ${tmp}"
@@ -305,6 +410,28 @@ get_value_from() {
   [[ "${message2}" == "DeploymentConfig: The container \"app\" is using an invalid container image, \"app:latest\". Please use images that are not blocked by the \`BlockList\` criteria : [\".*:(latest)$\" \"^[^:]*$\" \"(.*/[^:]+)$\"]" ]]
   [[ "${count}" == "2" ]]
 }
+
+@test "liveness-port" {
+  tmp="tests/checks/liveness-port.yml"
+  cmd="${KUBE_LINTER_BIN} lint --include liveness-port --do-not-auto-add-defaults --format json ${tmp}"
+  run ${cmd}
+
+  print_info "${status}" "${output}" "${cmd}" "${tmp}"
+  [ "$status" -eq 1 ]
+
+  message1=$(get_value_from "${lines[0]}" '.Reports[0].Object.K8sObject.GroupVersionKind.Kind + ": " + .Reports[0].Diagnostic.Message')
+  message2=$(get_value_from "${lines[0]}" '.Reports[1].Object.K8sObject.GroupVersionKind.Kind + ": " + .Reports[1].Diagnostic.Message')
+  message3=$(get_value_from "${lines[0]}" '.Reports[2].Object.K8sObject.GroupVersionKind.Kind + ": " + .Reports[2].Diagnostic.Message')
+  message4=$(get_value_from "${lines[0]}" '.Reports[3].Object.K8sObject.GroupVersionKind.Kind + ": " + .Reports[3].Diagnostic.Message')
+  count=$(get_value_from "${lines[0]}" '.Reports | length')
+
+  [[ "${message1}" == "Deployment: container \"fire-deployment-name\" does not expose port http for the HTTPGet" ]]
+  [[ "${message2}" == "Deployment: container \"fire-deployment-int\" does not expose port 8080 for the HTTPGet" ]]
+  [[ "${message3}" == "Deployment: container \"fire-deployment-udp\" does not expose port udp for the TCPSocket" ]]
+  [[ "${message4}" == "StatefulSet: container \"fire-stateful-name\" does not expose port healthcheck for the HTTPGet" ]]
+  [[ "${count}" == "4" ]]
+}
+
 
 @test "minimum-three-replicas" {
   tmp="tests/checks/minimum-three-replicas.yml"
@@ -350,11 +477,13 @@ get_value_from() {
 
   message1=$(get_value_from "${lines[0]}" '.Reports[0].Object.K8sObject.GroupVersionKind.Kind + ": " + .Reports[0].Diagnostic.Message')
   message2=$(get_value_from "${lines[0]}" '.Reports[1].Object.K8sObject.GroupVersionKind.Kind + ": " +.Reports[1].Diagnostic.Message')
+  message3=$(get_value_from "${lines[0]}" '.Reports[2].Object.K8sObject.GroupVersionKind.Kind + ": " +.Reports[2].Diagnostic.Message')
   count=$(get_value_from "${lines[0]}" '.Reports | length')
 
   [[ "${message1}" == "Deployment: object has 3 replicas but does not specify inter pod anti-affinity" ]]
   [[ "${message2}" == "DeploymentConfig: object has 3 replicas but does not specify inter pod anti-affinity" ]]
-  [[ "${count}" == "2" ]]
+  [[ "${message3}" == "Deployment: pod's namespace \"foo\" not found in anti-affinity's namespaces [bar]" ]]
+  [[ "${count}" == "3" ]]
 }
 
 @test "no-extensions-v1beta" {
@@ -489,6 +618,50 @@ get_value_from() {
   [[ "${count}" == "2" ]]
 }
 
+@test "pdb-max-unavailable" {
+
+  tmp="tests/checks/pdb-max-unavailable.yaml"
+  cmd="${KUBE_LINTER_BIN} lint --include pdb-max-unavailable --do-not-auto-add-defaults --format json ${tmp}"
+  run ${cmd}
+
+  message1=$(get_value_from "${lines[0]}" '.Reports[0].Object.K8sObject.GroupVersionKind.Kind + ": " + .Reports[0].Diagnostic.Message')
+
+  [[ "${message1}" == "PodDisruptionBudget: MaxUnavailable is set to 0" ]]
+
+}
+
+@test "pdb-min-available" {
+
+  tmp="tests/checks/pdb-min-available.yaml"
+  cmd="${KUBE_LINTER_BIN} lint --include pdb-min-available --do-not-auto-add-defaults --format json ${tmp}"
+  run ${cmd}
+
+
+  message1=$(get_value_from "${lines[0]}" '.Reports[0].Object.K8sObject.GroupVersionKind.Kind + ": " + .Reports[0].Diagnostic.Message')
+  message2=$(get_value_from "${lines[0]}" '.Reports[1].Object.K8sObject.GroupVersionKind.Kind + ": " + .Reports[1].Diagnostic.Message')
+  message3=$(get_value_from "${lines[0]}" '.Reports[2].Object.K8sObject.GroupVersionKind.Kind + ": " + .Reports[2].Diagnostic.Message')
+  count=$(get_value_from "${lines[0]}" '.Reports | length')
+
+  [[ "${message1}" == "PodDisruptionBudget: The current number of replicas for deployment foo is equal to or lower than the minimum number of replicas specified by its PDB." ]]
+  [[ "${message2}" == "PodDisruptionBudget: The current number of replicas for deployment foo2 is equal to or lower than the minimum number of replicas specified by its PDB." ]]
+  [[ "${message3}" == "PodDisruptionBudget: The current number of replicas for deployment foo3 is equal to or lower than the minimum number of replicas specified by its PDB." ]]
+  [[ "${count}" == "3" ]]
+}
+
+@test "pdb-unhealthy-pod-eviction-policy" {
+
+  tmp="tests/checks/pdb-unhealthy-pod-eviction-policy.yaml"
+  cmd="${KUBE_LINTER_BIN} lint --include pdb-unhealthy-pod-eviction-policy --do-not-auto-add-defaults --format json ${tmp}"
+  run ${cmd}
+
+  message1=$(get_value_from "${lines[0]}" '.Reports[0].Object.K8sObject.GroupVersionKind.Kind + ": " + .Reports[0].Diagnostic.Message')
+
+  [[ "${message1}" == "PodDisruptionBudget: unhealthyPodEvictionPolicy is not explicitly set" ]]
+  count=$(get_value_from "${lines[0]}" '.Reports | length')
+  [[ "${count}" == "1" ]]
+
+}
+
 @test "privilege-escalation-container" {
   tmp="tests/checks/privilege-escalation-container.yml"
   cmd="${KUBE_LINTER_BIN} lint --include privilege-escalation-container --do-not-auto-add-defaults --format json ${tmp}"
@@ -557,6 +730,27 @@ get_value_from() {
   [[ "${count}" == "2" ]]
 }
 
+@test "readiness-port" {
+  tmp="tests/checks/readiness-port.yml"
+  cmd="${KUBE_LINTER_BIN} lint --include readiness-port --do-not-auto-add-defaults --format json ${tmp}"
+  run ${cmd}
+
+  print_info "${status}" "${output}" "${cmd}" "${tmp}"
+  [ "$status" -eq 1 ]
+
+  message1=$(get_value_from "${lines[0]}" '.Reports[0].Object.K8sObject.GroupVersionKind.Kind + ": " + .Reports[0].Diagnostic.Message')
+  message2=$(get_value_from "${lines[0]}" '.Reports[1].Object.K8sObject.GroupVersionKind.Kind + ": " + .Reports[1].Diagnostic.Message')
+  message3=$(get_value_from "${lines[0]}" '.Reports[2].Object.K8sObject.GroupVersionKind.Kind + ": " + .Reports[2].Diagnostic.Message')
+  message4=$(get_value_from "${lines[0]}" '.Reports[3].Object.K8sObject.GroupVersionKind.Kind + ": " + .Reports[3].Diagnostic.Message')
+  count=$(get_value_from "${lines[0]}" '.Reports | length')
+
+  [[ "${message1}" == "Deployment: container \"fire-deployment-name\" does not expose port http for the HTTPGet" ]]
+  [[ "${message2}" == "Deployment: container \"fire-deployment-int\" does not expose port 8080 for the HTTPGet" ]]
+  [[ "${message3}" == "Deployment: container \"fire-deployment-udp\" does not expose port udp for the TCPSocket" ]]
+  [[ "${message4}" == "Deployment: container \"fire-deployment-grpc\" does not expose port 8080 for the GRPC check" ]]
+  [[ "${count}" == "4" ]]
+}
+
 @test "required-annotation-email" {
   tmp="tests/checks/required-annotation-email.yml"
   cmd="${KUBE_LINTER_BIN} lint --include required-annotation-email --do-not-auto-add-defaults --format json ${tmp}"
@@ -608,6 +802,21 @@ get_value_from() {
   [[ "${count}" == "2" ]]
 }
 
+@test "scc-deny-privileged-container" {
+  tmp="tests/checks/scc-deny-privileged-container.yml"
+  cmd="${KUBE_LINTER_BIN} lint --include scc-deny-privileged-container --do-not-auto-add-defaults --format json ${tmp}"
+  run ${cmd}
+
+  print_info "${status}" "${output}" "${cmd}" "${tmp}"
+  [ "$status" -eq 1 ]
+
+  message1=$(get_value_from "${lines[0]}" '.Reports[0].Object.K8sObject.GroupVersionKind.Kind + ": " + .Reports[0].Diagnostic.Message')
+  count=$(get_value_from "${lines[0]}" '.Reports | length')
+
+  [[ "${message1}" == "SecurityContextConstraints: SCC has allowPrivilegedContainer set to true" ]]
+  [[ "${count}" == "1" ]]
+}
+
 @test "sensitive-host-mounts" {
   tmp="tests/checks/sensitive-host-mounts.yml"
   cmd="${KUBE_LINTER_BIN} lint --include sensitive-host-mounts --do-not-auto-add-defaults --format json ${tmp}"
@@ -642,6 +851,27 @@ get_value_from() {
   [[ "${message2}" == "DeploymentConfig: port 22 and protocol TCP in container \"app\" found" ]]
   [[ "${message3}" == "DeploymentConfig: port 22 and protocol TCP in container \"app-no-protocol\" found" ]]
   [[ "${count}" == "3" ]]
+}
+
+@test "startup-port" {
+  tmp="tests/checks/startup-port.yml"
+  cmd="${KUBE_LINTER_BIN} lint --include startup-port --do-not-auto-add-defaults --format json ${tmp}"
+  run ${cmd}
+
+  print_info "${status}" "${output}" "${cmd}" "${tmp}"
+  [ "$status" -eq 1 ]
+
+  message1=$(get_value_from "${lines[0]}" '.Reports[0].Object.K8sObject.GroupVersionKind.Kind + ": " + .Reports[0].Diagnostic.Message')
+  message2=$(get_value_from "${lines[0]}" '.Reports[1].Object.K8sObject.GroupVersionKind.Kind + ": " + .Reports[1].Diagnostic.Message')
+  message3=$(get_value_from "${lines[0]}" '.Reports[2].Object.K8sObject.GroupVersionKind.Kind + ": " + .Reports[2].Diagnostic.Message')
+  message4=$(get_value_from "${lines[0]}" '.Reports[3].Object.K8sObject.GroupVersionKind.Kind + ": " + .Reports[3].Diagnostic.Message')
+  count=$(get_value_from "${lines[0]}" '.Reports | length')
+
+  [[ "${message1}" == "Deployment: container \"fire-deployment-name\" does not expose port http for the HTTPGet" ]]
+  [[ "${message2}" == "Deployment: container \"fire-deployment-int\" does not expose port 8080 for the HTTPGet" ]]
+  [[ "${message3}" == "Deployment: container \"fire-deployment-udp\" does not expose port udp for the TCPSocket" ]]
+  [[ "${message4}" == "Deployment: container \"fire-deployment-grpc\" does not expose port 8080 for the GRPC check" ]]
+  [[ "${count}" == "4" ]]
 }
 
 @test "unsafe-proc-mount" {
@@ -688,15 +918,11 @@ get_value_from() {
 
   message1=$(get_value_from "${lines[0]}" '.Reports[0].Object.K8sObject.GroupVersionKind.Kind + ": " + .Reports[0].Diagnostic.Message')
   message2=$(get_value_from "${lines[0]}" '.Reports[1].Object.K8sObject.GroupVersionKind.Kind + ": " + .Reports[1].Diagnostic.Message')
-  message3=$(get_value_from "${lines[0]}" '.Reports[2].Object.K8sObject.GroupVersionKind.Kind + ": " + .Reports[2].Diagnostic.Message')
-  message4=$(get_value_from "${lines[0]}" '.Reports[3].Object.K8sObject.GroupVersionKind.Kind + ": " + .Reports[3].Diagnostic.Message')
   count=$(get_value_from "${lines[0]}" '.Reports | length')
 
   [[ "${message1}" == "Deployment: container \"app\" has cpu request 0" ]]
-  [[ "${message2}" == "Deployment: container \"app\" has cpu limit 0" ]]
-  [[ "${message3}" == "DeploymentConfig: container \"app\" has cpu request 0" ]]
-  [[ "${message4}" == "DeploymentConfig: container \"app\" has cpu limit 0" ]]
-  [[ "${count}" == "4" ]]
+  [[ "${message2}" == "DeploymentConfig: container \"app\" has cpu request 0" ]]
+  [[ "${count}" == "2" ]]
 }
 
 @test "unset-memory-requirements" {
@@ -709,15 +935,11 @@ get_value_from() {
 
   message1=$(get_value_from "${lines[0]}" '.Reports[0].Object.K8sObject.GroupVersionKind.Kind + ": " + .Reports[0].Diagnostic.Message')
   message2=$(get_value_from "${lines[0]}" '.Reports[1].Object.K8sObject.GroupVersionKind.Kind + ": " + .Reports[1].Diagnostic.Message')
-  message3=$(get_value_from "${lines[0]}" '.Reports[2].Object.K8sObject.GroupVersionKind.Kind + ": " + .Reports[2].Diagnostic.Message')
-  message4=$(get_value_from "${lines[0]}" '.Reports[3].Object.K8sObject.GroupVersionKind.Kind + ": " + .Reports[3].Diagnostic.Message')
   count=$(get_value_from "${lines[0]}" '.Reports | length')
 
-  [[ "${message1}" == "Deployment: container \"app\" has memory request 0" ]]
-  [[ "${message2}" == "Deployment: container \"app\" has memory limit 0" ]]
-  [[ "${message3}" == "DeploymentConfig: container \"app\" has memory request 0" ]]
-  [[ "${message4}" == "DeploymentConfig: container \"app\" has memory limit 0" ]]
-  [[ "${count}" == "4" ]]
+  [[ "${message1}" == "Deployment: container \"app\" has memory limit 0" ]]
+  [[ "${message2}" == "DeploymentConfig: container \"app\" has memory limit 0" ]]
+  [[ "${count}" == "2" ]]
 }
 
 @test "use-namespace" {
@@ -775,9 +997,23 @@ get_value_from() {
   print_info "${status}" "${output}" "${cmd}" "${tmp}"
   [ "$status" -eq 1 ]
 
-  message=$(get_value_from "${lines[0]}" '.Reports[0].Object.K8sObject.GroupVersionKind.Kind + ": " + .Reports[0].Diagnostic.Message')
+  message1=$(get_value_from "${lines[0]}" '.Reports[0].Object.K8sObject.GroupVersionKind.Kind + ": " + .Reports[0].Diagnostic.Message')
+  failing_resource=$(get_value_from "${lines[0]}" '.Reports[1].Object.K8sObject.Name')
   count=$(get_value_from "${lines[0]}" '.Reports | length')
 
-  [[ "${message}" == "Deployment: annotation matching \"reloader.stakater.com/auto=true\" found" ]]
-  [[ "${count}" == "1" ]]
+  [[ "${message1}" == "Deployment: annotation matching \"reloader.stakater.com/auto=true\" found" ]]
+  [[ "${failing_resource}" == "bad-irsa-role" ]]
+  [[ "${count}" == "2" ]]
+}
+
+@test "flag-ignore-paths" {
+  tmp="."
+  cmd="${KUBE_LINTER_BIN} lint --ignore-paths \"tests/**\" --ignore-paths \"e2etests/**\" ${tmp}"
+  run ${cmd}
+  print_info "${status}" "${output}" "${cmd}" "${tmp}"
+  [ "$status" -eq 0 ]
+}
+
+@test "flag-read-from-stdin" {
+  echo "---" | ${KUBE_LINTER_BIN} lint -
 }

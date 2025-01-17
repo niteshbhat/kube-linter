@@ -111,6 +111,15 @@ KubeLinter supports the following templates:
 **Supported Objects**: HorizontalPodAutoscaler
 
 
+## Dangling Ingress
+
+**Key**: `dangling-ingress`
+
+**Description**: Flag ingress which do not match any service and port
+
+**Supported Objects**: Ingress
+
+
 ## Dangling NetworkPolicies
 
 **Key**: `dangling-networkpolicy`
@@ -136,6 +145,28 @@ KubeLinter supports the following templates:
 **Description**: Flag services which do not match any application
 
 **Supported Objects**: DeploymentLike
+
+
+**Parameters**:
+
+```yaml
+- arrayElemType: string
+  description: A list of labels that will not cause the check to fail. For example,
+    a label that is known to be populated at runtime by Kubernetes.
+  name: ignoredLabels
+  negationAllowed: true
+  regexAllowed: true
+  required: false
+  type: array
+```
+
+## Dangling Service Monitor
+
+**Key**: `dangling-servicemonitor`
+
+**Description**: Flag service monitors which do not match any service
+
+**Supported Objects**: ServiceMonitor
 
 
 ## Deprecated Service Account Field
@@ -186,6 +217,41 @@ KubeLinter supports the following templates:
   required: false
   type: string
 ```
+
+## DnsConfig Options
+
+**Key**: `dnsconfig-options`
+
+**Description**: Flag objects that don't have specified DNSConfig Options
+
+**Supported Objects**: DeploymentLike
+
+
+**Parameters**:
+
+```yaml
+- description: Key of the dnsConfig option.
+  name: key
+  negationAllowed: true
+  regexAllowed: true
+  required: false
+  type: string
+- description: Value of the dnsConfig option.
+  name: value
+  negationAllowed: true
+  regexAllowed: true
+  required: false
+  type: string
+```
+
+## Duplicate Environment Variables
+
+**Key**: `duplicate-env-var`
+
+**Description**: Flag Duplicate Env Variables names
+
+**Supported Objects**: DeploymentLike
+
 
 ## Environment Variables
 
@@ -378,6 +444,15 @@ KubeLinter supports the following templates:
   type: array
 ```
 
+## Liveness Port Exposed
+
+**Key**: `liveness-port`
+
+**Description**: Flag containers with an liveness probe to not exposed port.
+
+**Supported Objects**: DeploymentLike
+
+
 ## Liveness Probe Not Specified
 
 **Key**: `liveness-probe`
@@ -471,6 +546,33 @@ KubeLinter supports the following templates:
 **Supported Objects**: NetworkPolicy
 
 
+## No pod disruptions allowed - maxUnavailable
+
+**Key**: `pdb-max-unavailable`
+
+**Description**: Flag PodDisruptionBudgets whose maxUnavailable value will always prevent pod disruptions.
+
+**Supported Objects**: PodDisruptionBudget
+
+
+## No pod disruptions allowed - minAvailable
+
+**Key**: `pdb-min-available`
+
+**Description**: Flag PodDisruptionBudgets whose minAvailable value will always prevent pod disruptions.
+
+**Supported Objects**: PodDisruptionBudget
+
+
+## .spec.unhealthyPodEvictionPolicy in PDB is set to default
+
+**Key**: `pdb-unhealthy-pod-eviction-policy`
+
+**Description**: Flag PodDisruptionBudget objects that do not explicitly set unhealthyPodEvictionPolicy.
+
+**Supported Objects**: PodDisruptionBudget
+
+
 ## Ports
 
 **Key**: `ports`
@@ -536,6 +638,15 @@ KubeLinter supports the following templates:
 **Key**: `read-secret-from-env-var`
 
 **Description**: Flag environment variables that use SecretKeyRef
+
+**Supported Objects**: DeploymentLike
+
+
+## Readiness Port Not Exposed
+
+**Key**: `readiness-port`
+
+**Description**: Flag containers with an Readiness probe to not exposed port.
 
 **Supported Objects**: DeploymentLike
 
@@ -610,6 +721,24 @@ KubeLinter supports the following templates:
 **Supported Objects**: DeploymentLike
 
 
+## SecurityContextConstraints allowPrivilegedContainer
+
+**Key**: `scc-deny-privileged-container`
+
+**Description**: Flag SCC with allowPrivilegedContainer set to true
+
+**Supported Objects**: SecurityContextConstraints
+
+
+**Parameters**:
+
+```yaml
+- description: allowPrivilegedContainer value
+  name: allowPrivilegedContainer
+  required: false
+  type: boolean
+```
+
 ## Service Account
 
 **Key**: `service-account`
@@ -629,6 +758,24 @@ KubeLinter supports the following templates:
   required: true
   type: string
 ```
+
+## Startup Port Exposed
+
+**Key**: `startup-port`
+
+**Description**: Flag containers with an Startup probe to not exposed port.
+
+**Supported Objects**: DeploymentLike
+
+
+## Target Port
+
+**Key**: `target-port`
+
+**Description**: Flag containers and services using not allowed port names or numbers
+
+**Supported Objects**: DeploymentLike,Service
+
 
 ## Unsafe Proc Mount
 

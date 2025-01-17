@@ -6,6 +6,8 @@ on:
   # Uploading Code Scanning results requires write access. Ignore dependabot branches for auto-merge.
   push:
     branches-ignore: "dependabot/**"
+    tags:
+      - "*"
 
 env:
   # Use docker.io for Docker Hub if empty
@@ -17,26 +19,24 @@ jobs:
   build-and-test:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v4
         with:
           # Checkout all repo history to make tags available for figuring out kube-linter version during build.
           fetch-depth: 0
 
-      - name: Read Go version from go.mod
-        run: echo "GO_VERSION=$(grep -E "^go\s+[0-9.]+$" go.mod | cut -d " " -f 2)" >> $GITHUB_ENV
       - name: Setup Go environment
-        uses: actions/setup-go@v2
+        uses: actions/setup-go@v5
         with:
-          go-version: ${{ env.GO_VERSION }}
+          go-version-file: go.mod
 
       - name: Go Build Cache
-        uses: actions/cache@v2
+        uses: actions/cache@v4
         with:
           path: ~/.cache
           key: ${{ runner.os }}-go-build-${{ hashFiles('**/go.sum') }}
 
       - name: Go Mod Cache
-        uses: actions/cache@v2
+        uses: actions/cache@v4
         with:
           path: ~/go/pkg/mod
           key: ${{ runner.os }}-go-mod-${{ hashFiles('**/go.sum') }}
@@ -45,17 +45,10 @@ jobs:
         run: make build
 
       - name: Upload binary
-        uses: actions/upload-artifact@v2
+        uses: actions/upload-artifact@v4
         with:
           name: bin
           path: bin
-
-      - name: Verify the binary version
-        run: |
-          expected_version="$(./get-tag)"
-          version_from_binary="$(.gobin/kube-linter version)"
-          echo "Version from kube-linter binary: ${version_from_binary}. Expected version: ${expected_version}"
-          [[ "${version_from_binary}" == "${expected_version}" ]]
 
       - name: Run lint checks
         run: make lint
@@ -65,6 +58,13 @@ jobs:
 
       - name: Run unit tests
         run: make test
+
+      - name: Upload coverage reports to Codecov
+        uses: codecov/codecov-action@v5.1.2
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          slug: stackrox/kube-linter
+          flags: unit
 
       - name: Run E2E tests
         run: make e2e-test
@@ -77,25 +77,44 @@ jobs:
       - name: Run bats tests
         run: make e2e-bats
 
+      - name: Upload coverage reports to Codecov
+        uses: codecov/codecov-action@v5.1.2
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          slug: stackrox/kube-linter
+          flags: bats
+
+      - name: Upload Linux binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: kube-linter
+          path: dist/kube-linter_linux_amd64_v1/kube-linter
+
+      - name: Upload Windows binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: kube-linter.exe
+          path: dist/kube-linter_windows_amd64_v1/kube-linter.exe
+
   test-sarif:
     needs: build-and-test
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v4
 
       - name: Download executable
-        uses: actions/download-artifact@v2
+        uses: actions/download-artifact@v4
         with:
-          name: bin
-      
+          name: kube-linter
+
       - name: Set permissions to file
-        run:  chmod +x linux/kube-linter
+        run:  chmod +x kube-linter
 
       - name: Print kube-linter version
-        run:  linux/kube-linter version
+        run:  ./kube-linter version
 
       - name: Run kube-linter on a sample file with SARIF output
-        run:  linux/kube-linter lint --format=sarif tests/testdata/splunk.yaml > results.sarif
+        run:  ./kube-linter lint --format=sarif tests/testdata/splunk.yaml > results.sarif
         continue-on-error: true
 
       - name: Dump output file and check it is not empty
@@ -103,7 +122,7 @@ jobs:
         run: jq -es 'if . == [] then null else .[] | . end' results.sarif
 
       - name: Upload output file as GitHub artifact for manual investigation
-        uses: actions/upload-artifact@v2
+        uses: actions/upload-artifact@v4
         with:
           name: results.sarif
           path: results.sarif
@@ -115,13 +134,11 @@ jobs:
         run: |
           set -ex
           schema=$(jq -r '.["$schema"]' results.sarif)
-          [ "$schema" = https://json.schemastore.org/sarif-2.1.0-rtm.5.json ]
+          [ "$schema" = https://raw.githubusercontent.com/oasis-tcs/sarif-spec/main/sarif-2.1/schema/sarif-schema-2.1.0.json ]
           ./yajsv -s ./scripts/sarif/sarif-schema-2.1.0.json results.sarif
 
       - name: Upload SARIF output file to GitHub
-        # Workflows triggered by Dependabot on the "push" event run with read-only access and uploading Code Scanning results requires write access.
-        if: ((github.event_name == 'push') && !contains(github.head_ref, 'dependabot')) || (github.event_name != 'push')
-        uses: github/codeql-action/upload-sarif@v1
+        uses: github/codeql-action/upload-sarif@v3
         with:
           sarif_file: results.sarif
 
@@ -130,160 +147,19 @@ jobs:
     needs: build-and-test
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v4
         with:
           # Checkout all repo history to make tags available for figuring out kube-linter version during build.
           fetch-depth: 0
       - name: Download windows executable
-        uses: actions/download-artifact@v2
+        uses: actions/download-artifact@v4
         with:
-          name: bin
+          name: kube-linter.exe
           path: tmp/
       - shell: bash
         run: |
-          # In Windows, the workspace is attached relative to the current directory.
-          tag="$(./get-tag)"
-          version_from_bin="$(tmp/windows/kube-linter.exe version)"
-          echo "Expected tag ${tag}, got ${version_from_bin}"
-          [[ "${tag}" == "${version_from_bin}" ]]
+          tmp/kube-linter.exe version
 
           # Make sure the lint command can run without errors.
           # TODO: run the full suite of E2E tests on Windows.
-          tmp/windows/kube-linter.exe lint "tests/checks/access-to-create-pods.yml"
-
-  image:
-    if: startsWith(github.ref, 'refs/tags/')
-    needs: build-and-test
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v2
-
-      - name: Download executable
-        uses: actions/download-artifact@v2
-        with:
-          name: bin
-
-      - name: Set permissions to file
-        run:  chmod +x linux/kube-linter
-
-      - name: Move binary
-        run:  mv linux/kube-linter image/bin
-
-      - name: Print kube-linter version
-        run:  image/bin/kube-linter version
-
-      # Install the cosign tool except on PR
-      # https://github.com/sigstore/cosign-installer
-      - name: Install cosign
-        if: github.event_name != 'pull_request'
-        uses: sigstore/cosign-installer@d6a3abf1bdea83574e28d40543793018b6035605
-        with:
-          cosign-release: 'v1.7.1'
-
-
-      # Workaround: https://github.com/docker/build-push-action/issues/461
-      - name: Setup Docker buildx
-        uses: docker/setup-buildx-action@79abd3f86f79a9d68a23c75a09a9a85889262adf
-
-      # Login against a Docker registry except on PR
-      # https://github.com/docker/login-action
-      - name: Log into registry ${{ env.REGISTRY }}
-        if: github.event_name != 'pull_request'
-        uses: docker/login-action@28218f9b04b4f3f62068d7b6ce6ca5b26e35336c
-        with:
-          registry: ${{ env.REGISTRY }}
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      # Extract metadata (tags, labels) for Docker
-      # https://github.com/docker/metadata-action
-      - name: Extract Docker metadata
-        id: meta
-        uses: docker/metadata-action@98669ae865ea3cffbcbaa878cf57c20bbf1c6c38
-        with:
-          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
-
-      # Build and push Docker image with Buildx (don't push on PR)
-      # https://github.com/docker/build-push-action
-      - name: Build and push Docker image
-        id: build-and-push
-        uses: docker/build-push-action@ac9327eae2b366085ac7f6a2d02df8aa8ead720a
-        with:
-          context: image
-          push: ${{ github.event_name != 'pull_request' }}
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-
-      # Workaround: https://github.com/sigstore/cosign-installer/issues/73
-      - name: Write cosign private key to file
-        env:
-          KEY: ${{ secrets.COSIGN_KEY }}
-        shell: bash
-        run: 'echo "$KEY" > cosign.key'
-
-      # Sign the resulting Docker image digest except on PRs.
-      - name: Sign the published Docker image with cosign
-        if: ${{ github.event_name != 'pull_request' }}
-        env:
-          COSIGN_PASSWORD: ${{secrets.COSIGN_PASSWORD}}
-        run: cosign sign --key cosign.key ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.build-and-push.outputs.digest }}
-
-      # Sign the resulting Docker image digest except on PRs.
-      # This will only write to the public Rekor transparency log when the Docker
-      # repository is public to avoid leaking data.  If you would like to publish
-      # transparency data even for private images, pass --force to cosign below.
-      # https://github.com/sigstore/cosign
-      - name: Sign the published Docker image with cosign keyless
-        if: ${{ github.event_name != 'pull_request' }}
-        env:
-          COSIGN_EXPERIMENTAL: "true"
-        # This step uses the identity token to provision an ephemeral certificate
-        # against the sigstore community Fulcio instance.
-        run: cosign sign ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.build-and-push.outputs.digest }}
-
-  update_release_draft:
-    if: (github.ref == 'refs/heads/main') || (startsWith(github.ref, 'refs/tags/'))
-    needs: build-and-test
-    runs-on: ubuntu-latest
-    steps:
-      - name: Download executables
-        uses: actions/download-artifact@v2
-        with:
-          name: bin
-      - uses: release-drafter/release-drafter@v5
-        id: release_drafter
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      - name: Upload Release Asset Linux
-        id: upload-release-asset-linux
-        uses: gfreezy/upload-release-asset@v1.0.2
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          release_id: ${{ steps.release_drafter.outputs.id }}
-          upload_url: ${{ steps.release_drafter.outputs.upload_url }}
-          asset_path: linux/kube-linter
-          asset_name: kube-linter-linux
-          asset_content_type: application/octet-stream
-      - name: Upload Release Asset Windows
-        id: upload-release-asset-windows
-        uses: gfreezy/upload-release-asset@v1.0.2
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          release_id: ${{ steps.release_drafter.outputs.id }}
-          upload_url: ${{ steps.release_drafter.outputs.upload_url }}
-          asset_path: windows/kube-linter.exe
-          asset_name: kube-linter-windows
-          asset_content_type: application/octet-stream
-      - name: Upload Release Asset Mac
-        id: upload-release-asset-mac
-        uses: gfreezy/upload-release-asset@v1.0.2
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          release_id: ${{ steps.release_drafter.outputs.id }}
-          upload_url: ${{ steps.release_drafter.outputs.upload_url }}
-          asset_path: darwin/kube-linter
-          asset_name: kube-linter-mac
-          asset_content_type: application/octet-stream
+          tmp/kube-linter.exe lint "tests/checks/access-to-create-pods.yml"

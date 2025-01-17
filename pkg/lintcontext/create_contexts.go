@@ -7,11 +7,17 @@ import (
 	"sort"
 	"strings"
 
+	"golang.stackrox.io/kube-linter/pkg/pathutil"
+
+	"github.com/bmatcuk/doublestar/v4"
 	"github.com/pkg/errors"
 	"golang.stackrox.io/kube-linter/internal/set"
 	"helm.sh/helm/v3/pkg/chartutil"
 	"k8s.io/apimachinery/pkg/runtime"
 )
+
+// ReadFromStdin is a path used to indicate reading from os.Stdin
+const ReadFromStdin = "-"
 
 var (
 	knownYAMLExtensions = set.NewFrozenStringSet(".yaml", ".yml")
@@ -29,25 +35,37 @@ type Options struct {
 // Currently, each directory of Kube YAML files (or Helm charts) are treated as a separate context.
 // TODO: Figure out if it's useful to allow people to specify that files spanning different directories
 // should be treated as being in the same context.
-func CreateContexts(filesOrDirs ...string) ([]LintContext, error) {
-	return CreateContextsWithOptions(Options{}, filesOrDirs...)
+func CreateContexts(ignorePaths []string, filesOrDirs ...string) ([]LintContext, error) {
+	return CreateContextsWithOptions(Options{}, ignorePaths, filesOrDirs...)
 }
 
 // CreateContextsWithOptions creates a context with additional Options
-func CreateContextsWithOptions(options Options, filesOrDirs ...string) ([]LintContext, error) {
+func CreateContextsWithOptions(options Options, ignorePaths []string, filesOrDirs ...string) ([]LintContext, error) {
 	contextsByDir := make(map[string]*lintContextImpl)
+fileOrDirsLoop:
 	for _, fileOrDir := range filesOrDirs {
-		// Stdin
-		if fileOrDir == "-" {
-			if _, alreadyExists := contextsByDir["-"]; alreadyExists {
+		if fileOrDir == ReadFromStdin {
+			if _, alreadyExists := contextsByDir[ReadFromStdin]; alreadyExists {
 				continue
 			}
 			ctx := newCtx(options)
 			if err := ctx.loadObjectsFromReader("<standard input>", os.Stdin); err != nil {
 				return nil, err
 			}
-			contextsByDir["-"] = ctx
+			contextsByDir[ReadFromStdin] = ctx
 			continue
+		}
+
+		for _, path := range ignorePaths {
+			// Using doublestar to enable **
+			// See https://github.com/golang/go/issues/11862
+			globMatch, err := doublestar.PathMatch(path, fileOrDir)
+			if err != nil {
+				return nil, errors.Wrapf(err, "could not match pattern %s", path)
+			}
+			if globMatch {
+				continue fileOrDirsLoop
+			}
 		}
 
 		err := filepath.Walk(fileOrDir, func(currentPath string, info os.FileInfo, walkErr error) error {
@@ -59,10 +77,27 @@ func CreateContextsWithOptions(options Options, filesOrDirs ...string) ([]LintCo
 				return nil
 			}
 
+			for _, path := range ignorePaths {
+				absPath, err := pathutil.GetAbsolutPath(currentPath)
+				if err != nil {
+					return errors.Wrapf(err, "could not get absolute path for %s", currentPath)
+				}
+				globMatch, err := doublestar.PathMatch(path, absPath)
+				if err != nil {
+					return errors.Wrapf(err, "could not match pattern %s", path)
+				}
+				if globMatch {
+					return nil
+				}
+			}
+
 			if !info.IsDir() {
 				if strings.HasSuffix(strings.ToLower(currentPath), ".tgz") {
 					ctx := newCtx(options)
-					ctx.loadObjectsFromTgzHelmChart(currentPath)
+					if err := ctx.loadObjectsFromTgzHelmChart(currentPath, ignorePaths); err != nil {
+						return errors.Wrapf(err, "loading helm chart %s", currentPath)
+					}
+
 					contextsByDir[currentPath] = ctx
 					return nil
 				}
@@ -88,7 +123,9 @@ func CreateContextsWithOptions(options Options, filesOrDirs ...string) ([]LintCo
 				}
 				ctx := newCtx(options)
 				contextsByDir[currentPath] = ctx
-				ctx.loadObjectsFromHelmChart(currentPath)
+				if err := ctx.loadObjectsFromHelmChart(currentPath, ignorePaths); err != nil {
+					return errors.Wrap(err, "loading helm chart")
+				}
 				return filepath.SkipDir
 			}
 			return nil
@@ -112,9 +149,11 @@ func CreateContextsWithOptions(options Options, filesOrDirs ...string) ([]LintCo
 // CreateContextsFromHelmArchive creates a context from TGZ reader of Helm Chart.
 // Note: although this function is not used in CLI, it is exposed from kube-linter library and therefore should stay.
 // See https://github.com/stackrox/kube-linter/pull/173
-func CreateContextsFromHelmArchive(fileName string, tgzReader io.Reader) ([]LintContext, error) {
+func CreateContextsFromHelmArchive(ignorePaths []string, fileName string, tgzReader io.Reader) ([]LintContext, error) {
 	ctx := newCtx(Options{})
-	ctx.readObjectsFromTgzHelmChart(fileName, tgzReader)
+	if err := ctx.readObjectsFromTgzHelmChart(fileName, tgzReader, ignorePaths); err != nil {
+		return nil, err
+	}
 
 	return []LintContext{ctx}, nil
 }
